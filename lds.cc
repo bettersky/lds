@@ -160,7 +160,16 @@ int LDS:: Storage_init(const std::string& storage_path){
 		exit(0);
 	}
 	uint64_t blk64;
-	ioctl(fd, BLKGETSIZE64, &blk64);//reture the size in bytes . This result is real
+	
+	if(storage_path.find("/dev/")!=-1){//the path is the raw device
+		ioctl(fd, BLKGETSIZE64, &blk64);//reture the size in bytes . This result is real
+	}
+	else{//the path should be a pre-allocated file
+		blk64=lseek(fd, 0, SEEK_END)+1;
+		lseek(fd, 0, SEEK_SET)+1;	
+	}
+	
+	
 	printf("lds.cc, Storage_init,, device size=【%llu GB】\n",blk64/1024/1024/1024);
 	
 	this->dev_read_only=( char *)mmap(NULL,blk64 ,PROT_READ, MAP_SHARED,fd,0);
