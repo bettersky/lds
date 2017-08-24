@@ -114,7 +114,7 @@ class LDS_WritableLog : public WritableFile {
 	}
 	 virtual Status Sync() {
 		//printf("env_lds, LDS_WritableLog, Sync, log_name_=%s\n",log_name_.c_str());
-
+		Log_sync(log_);
 		return Status::OK();
 
 	}
