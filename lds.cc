@@ -35,9 +35,9 @@ LDS::LDS(const std::string& storage_path, int flash_using_exist){
 }
 
 LDS_Log::LDS_Log(std::string name){
-		write_head=0;
-		flush_offset= 0;
-		sync_offset=0;
+		write_head=0;//indicates the current position to append in LDS buffer
+		flush_offset= 0;//indicates the current position from which (until ot the write_head) needs to be flush to OS buffer
+		sync_offset=0;//indicates the current position from which (until the flush_offset) needs to be flush to the disk
 		file_name=name;
 		size=0;		
 		

@@ -13,7 +13,7 @@ namespace leveldb {
 
 
 size_t Slot_write(const void * ptr, size_t size, size_t count, LDS_Slot * slot ){
-		//only write to buffer
+		//only write to LDS buffer
 		uint32_t write_bytes;//payload
 		write_bytes=size*count;
 		//printf("lds_io.cc, SLot_write, write_bytes=%d\n",write_bytes);
@@ -35,7 +35,8 @@ size_t Slot_write(const void * ptr, size_t size, size_t count, LDS_Slot * slot )
 }
 
 size_t Log_write(const void * ptr, size_t size, size_t count, LDS_Log * log ){
-	//only write to buffer
+	/*This function append the construct the log objects*/
+	//only write to LDS buffer
 
 	uint32_t write_bytes;//payload
 	write_bytes=size*count;
@@ -89,6 +90,9 @@ size_t Log_write(const void * ptr, size_t size, size_t count, LDS_Log * log ){
 }
 
 size_t Slot_flush(LDS_Slot *slot){
+		/*This function flushes the Chunk data to OS buffer
+		*/
+		//flush to OS buffer
 		//printf("lds_io.cc, Slot_flush, begin\n");
 		
 		
@@ -108,6 +112,8 @@ size_t Slot_flush(LDS_Slot *slot){
 }
 
 size_t Slot_sync(LDS_Slot *slot){
+	/*This function uses sync_file_range to sync the chunk data to the corresponding slot*/
+	//flush to disk
 	//printf("lds_io.cc, Slot_sync, begin, chun size=%d\n", slot->size);
 	//printf("lds_io.cc, Slot_sync, begin, chun size=%d, flush offset=%d\n", slot->size, slot->flush_offset);
 	Slot_flush(slot);
@@ -136,18 +142,39 @@ size_t Slot_sync(LDS_Slot *slot){
 }
 
 size_t Slot_close(LDS_Slot *slot){
+	/*Free the LDS buffer*/
 	delete slot;
 }
 
 size_t Log_flush(LDS_Log * log){
-
+	/*
+	 FLush the log object/objects to the OS buffer.
+	 This function is called by LevelDB each time when a log request is processed.
+	 */
+	 //flush to OS buffer
 	//printf("lds_id.cc, Log_flush, fd=%d\n", log->fd);
+	
+	/*Align to avoid the read-before-write problem*/
+	int algin_unit=4096;
+	uint64_t l_algined,r_aligned; 
+	l_algined=log->flush_offset;
+	r_aligned= log->write_head;
+	
+	l_algined=l_algined/algin_unit;
+	l_algined=l_algined*algin_unit;
+	
+	r_aligned=r_aligned/algin_unit;
+	r_aligned=(r_aligned+1)*algin_unit;
+	
+	/*Do the real flush operation with write system call*/
+	lseek64(log->fd, log->phy_offset+ log->l_algined, SEEK_SET);
+	write(log->fd, log->buffer+ l_algined, r_aligned- l_algined );//r_aligned- l_algined	
 
-	lseek64(log->fd, log->phy_offset+ log->flush_offset, SEEK_SET);
+	//lseek64(log->fd, log->phy_offset+ log->flush_offset, SEEK_SET);//The lseek64 call can be removed to improve performance, if the log fd is only used by one logging procedure.
+
+	//uint64_t flush_bytes = log->write_head - log->flush_offset;
 	
-	uint64_t flush_bytes = log->write_head - log->flush_offset;
-	
-	write(log->fd, log->buffer+ log->flush_offset, flush_bytes);
+	//write(log->fd, log->buffer+ log->flush_offset, flush_bytes);
 	
 	log->flush_offset =  log->write_head;
 	
@@ -157,7 +184,29 @@ size_t Log_flush(LDS_Log * log){
 	return flush_bytes;
 }
 
+size_t Log_sync(LDS_Log * log){
+	//Commit the OS-buffered log objects.
+
+	Log_flush(log);
+	
+	
+	uint64_t sync_point=log->phy_offset +log->sync_offset;
+	uint64_t sync_bytes=log->flush_offset-log->sync_offset;
+	int res;
+	res=sync_file_range(log->fd, sync_point, sync_bytes , SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER );//SYNC_FILE_RANGE_WRITE
+	//res=0;
+	log->sync_offset = log->flush_offset;
+	
+	
+	int res;
+	//res=sync_file_range(log->fd, slot->phy_offset, SLOT_SIZE , SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER );	
+
+
+}
+
+
 size_t Log_close(LDS_Log * log){
+	/*For interface compatibility*/
 	delete log;
 }
 int decode(char *raw_data, LDS_Log *log){
@@ -187,7 +236,7 @@ int decode(char *raw_data, LDS_Log *log){
 
 }
 size_t Log_read(void * ptr, size_t size, size_t count, LDS_Log *log){
-
+		/*Return raw data from the log area*/
 		//printf("lds_io.cc, Log_read, begin, read_buf=%p\n",log->read_buf);
 		if(log->read_buf==NULL){
 			printf("lds_io.cc, Log_read, buff is null, fd=%d, size=%lld\n",log->fd, log->size);
@@ -227,7 +276,7 @@ uint64_t Alloc_slot(uint64_t next_file_number_){
 	
 	uint64_t final_number;
 	uint64_t temp;
-	for(temp=result; temp< SlotTotal; temp++){//to refirm that the slot is free. if not, find the next front it.
+	for(temp=result; temp< SlotTotal; temp++){//To confirm that the slot is free. If not, find the next following it.
 		if(OnlineMap[temp]==0){//it is free
 			OnlineMap[temp]==1;
 			final_number= next_file_number_ + (temp-result);//reverse map
